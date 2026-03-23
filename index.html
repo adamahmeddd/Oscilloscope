@@ -1,1 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Arduino Oscilloscope</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap');
 
+:root {
+  --bg: #060a08;
+  --panel: #0b110d;
+  --border: #1a3320;
+  --green: #00ff7f;
+  --green-dim: #00ff7f33;
+  --green-mid: #00ff7f88;
+  --amber: #ffcc00;
+  --amber-dim: #ffcc0033;
+  --red: #ff4444;
+  --grid-major: #0d2010;
+  --grid-minor: #091509;
+  --text: #00ff7f;
+  --text-dim: #00ff7f66;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Share Tech Mono', monospace;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* ── Header ── */
+#header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#title {
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--green);
+  white-space: nowrap;
+}
+
+#conn-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.led {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 6px var(--red);
+  flex-shrink: 0;
+}
+.led.on {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: ledpulse 2s infinite;
+}
+@keyframes ledpulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+#conn-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.hbtn {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  padding: 5px 12px;
+  background: transparent;
+  color: var(--green);
+  border: 1px solid var(--green-dim);
+  border-radius: 3px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.hbtn:hover, .hbtn:active { background: var(--green-dim); border-color: var(--green-mid); }
+.hbtn.active { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+.hbtn.red { color: var(--red); border-color: #ff444433; }
+.hbtn.red:hover { background: #ff444422; border-color: var(--red); }
+
+/* ── Stats bar ── */
+#statsbar {
+  display: flex;
+  gap: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 14px;
+  border-right: 1px solid var(--border);
+  min-width: 70px;
+}
+.stat-label { font-size: 9px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+.stat-value { font-size: 14px; color: var(--green); font-family: 'Orbitron', monospace; margin-top: 1px; }
+
+/* ── Canvas ── */
+#scope-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Freeze overlay ── */
+#freeze-overlay {
+  display: none;
+  position: absolute;
+  top: 10px; right: 12px;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--amber);
+  border: 1px solid var(--amber-dim);
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: #0b0900;
+}
+
+/* ── Controls ── */
+#controls {
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 16px;
+  flex-shrink: 0;
+}
+
+.ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ctrl-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  white-space: nowrap;
+  min-width: 52px;
+}
+.ctrl input[type=range] {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 2px;
+  background: var(--border);
+  border-radius: 1px;
+  outline: none;
+  min-width: 0;
+}
+.ctrl input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--green);
+  cursor: pointer;
+  box-shadow: 0 0 6px var(--green-mid);
+}
+.ctrl-val {
+  font-size: 11px;
+  color: var(--green);
+  min-width: 36px;
+  text-align: right;
+}
+
+/* ── USB error toast ── */
+#toast {
+  display: none;
+  position: absolute;
+  bottom: 80px; left: 50%;
+  transform: translateX(-50%);
+  background: #1a0505;
+  border: 1px solid #ff444466;
+  color: #ff8888;
+  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+/* ── Trigger marker ── */
+#trig-info {
+  position: absolute;
+  top: 10px; left: 12px;
+  font-size: 10px;
+  color: var(--amber);
+  opacity: 0.7;
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span id="title">OSCILLOSCOPE</span>
+  <div id="conn-area">
+    <div class="led" id="led"></div>
+    <span id="conn-label">DEMO</span>
+    <button class="hbtn" id="btn-connect">CONNECT USB</button>
+    <button class="hbtn" id="btn-freeze">FREEZE</button>
+    <button class="hbtn" id="btn-clear">CLEAR</button>
+  </div>
+</div>
+
+<div id="statsbar">
+  <div class="stat"><span class="stat-label">MIN</span><span class="stat-value" id="s-min">—</span></div>
+  <div class="stat"><span class="stat-label">MAX</span><span class="stat-value" id="s-max">—</span></div>
+  <div class="stat"><span class="stat-label">VPP</span><span class="stat-value" id="s-vpp">—</span></div>
+  <div class="stat"><span class="stat-label">PERIOD</span><span class="stat-value" id="s-period">—</span></div>
+  <div class="stat"><span class="stat-label">SAMPLES</span><span class="stat-value" id="s-buf">0</span></div>
+</div>
+
+<div id="scope-wrap">
+  <canvas id="scope"></canvas>
+  <div id="freeze-overlay">FROZEN</div>
+  <div id="trig-info" id="trig-info"></div>
+  <div id="toast"></div>
+</div>
+
+<div id="controls">
+  <div class="ctrl">
+    <span class="ctrl-label">CYCLES</span>
+    <input type="range" id="sl-cycles" min="1" max="20" step="1" value="4">
+    <span class="ctrl-val" id="lbl-cycles">4</span>
+  </div>
+  <div class="ctrl">
+    <span class="ctrl-label">V / DIV</span>
+    <input type="range" id="sl-vdiv" min="1" max="16" step="1" value="6">
+    <span class="ctrl-val" id="lbl-vdiv">6</span>
+  </div>
+  <div class="ctrl">
+    <span class="ctrl-label">OFFSET</span>
+    <input type="range" id="sl-offset" min="-512" max="512" step="8" value="0">
+    <span class="ctrl-val" id="lbl-offset">0</span>
+  </div>
+  <div class="ctrl">
+    <span class="ctrl-label">TRIGGER</span>
+    <input type="range" id="sl-trig" min="0" max="1023" step="1" value="100">
+    <span class="ctrl-val" id="lbl-trig">100</span>
+  </div>
+</div>
+
+<script>
+const canvas  = document.getElementById('scope');
+const ctx     = canvas.getContext('2d');
+const wrap    = document.getElementById('scope-wrap');
+
+let buffer    = [];
+const BUFSIZE = 8000;
+let frozen    = false;
+let connected = false;
+let demoMode  = true;
+let demoPhase = 0;
+
+let port = null;
+let reader = null;
+
+const slCycles  = document.getElementById('sl-cycles');
+const slVdiv    = document.getElementById('sl-vdiv');
+const slOffset  = document.getElementById('sl-offset');
+const slTrig    = document.getElementById('sl-trig');
+const led       = document.getElementById('led');
+const connLabel = document.getElementById('conn-label');
+const btnConn   = document.getElementById('btn-connect');
+const freezeOverlay = document.getElementById('freeze-overlay');
+const toast     = document.getElementById('toast');
+
+function mkLabel(sl, lbl) {
+  sl.oninput = () => { document.getElementById(lbl).textContent = sl.value; };
+}
+mkLabel(slCycles, 'lbl-cycles');
+mkLabel(slVdiv,   'lbl-vdiv');
+mkLabel(slOffset, 'lbl-offset');
+mkLabel(slTrig,   'lbl-trig');
+
+function resize() {
+  const dpr = devicePixelRatio || 1;
+  canvas.width  = wrap.clientWidth  * dpr;
+  canvas.height = wrap.clientHeight * dpr;
+}
+resize();
+window.addEventListener('resize', resize);
+
+document.getElementById('btn-freeze').onclick = () => {
+  frozen = !frozen;
+  document.getElementById('btn-freeze').classList.toggle('active', frozen);
+  freezeOverlay.style.display = frozen ? 'block' : 'none';
+};
+document.getElementById('btn-clear').onclick = () => { buffer = []; };
+
+/* ── demo sine wave ── */
+function injectDemo() {
+  for (let k = 0; k < 20; k++) {
+    demoPhase += (2 * Math.PI) / 200;
+    const v = Math.round(512 + 480 * Math.sin(demoPhase));
+    buffer.push(Math.max(0, Math.min(1023, Math.round(v + (Math.random()-0.5)*5))));
+  }
+  if (buffer.length > BUFSIZE) buffer.splice(0, buffer.length - BUFSIZE);
+}
+
+/* ── trigger ── */
+function findTrigger(data, level) {
+  for (let i = 1; i < data.length; i++) {
+    if (data[i-1] < level && data[i] >= level) return i;
+  }
+  return 0;
+}
+
+function estimatePeriod(data, level) {
+  let first = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (data[i-1] < level && data[i] >= level) {
+      if (first < 0) first = i;
+      else return i - first;
+    }
+  }
+  return null;
+}
+
+/* ── draw ── */
+function drawGrid() {
+  const W = canvas.width, H = canvas.height;
+  const cols = 10, rows = 8;
+  const cw = W/cols, ch = H/rows;
+
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#0d2010';
+  for (let i = 0; i <= cols; i++) {
+    ctx.beginPath(); ctx.moveTo(i*cw, 0); ctx.lineTo(i*cw, H); ctx.stroke();
+  }
+  for (let j = 0; j <= rows; j++) {
+    ctx.beginPath(); ctx.moveTo(0, j*ch); ctx.lineTo(W, j*ch); ctx.stroke();
+  }
+  ctx.strokeStyle = '#091509';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= cols*5; i++) {
+    const x = i*(cw/5);
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+  }
+  for (let j = 0; j <= rows*5; j++) {
+    const y = j*(ch/5);
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+  ctx.strokeStyle = '#152a18';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0,H/2); ctx.lineTo(W,H/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+}
+
+function drawFrame() {
+  const W = canvas.width, H = canvas.height;
+  const dpr = devicePixelRatio || 1;
+  ctx.fillStyle = '#060a08';
+  ctx.fillRect(0,0,W,H);
+  drawGrid();
+
+  if (!frozen && demoMode) injectDemo();
+
+  document.getElementById('s-buf').textContent = buffer.length;
+  if (buffer.length < 4) { requestAnimationFrame(drawFrame); return; }
+
+  const trig    = parseInt(slTrig.value);
+  const vdiv    = parseFloat(slVdiv.value);
+  const offset  = parseInt(slOffset.value);
+  const numCyc  = parseInt(slCycles.value);
+  const period  = estimatePeriod(buffer, trig);
+  const trigIdx = findTrigger(buffer, trig);
+  const winLen  = period ? Math.round(period * numCyc) : Math.round(BUFSIZE * 0.4);
+  const slice   = buffer.slice(trigIdx, trigIdx + winLen);
+
+  if (period) document.getElementById('s-period').textContent = period;
+  if (slice.length > 1) {
+    const mn = Math.min(...slice), mx = Math.max(...slice);
+    document.getElementById('s-min').textContent = mn;
+    document.getElementById('s-max').textContent = mx;
+    document.getElementById('s-vpp').textContent = mx - mn;
+  }
+
+  if (slice.length < 2) { requestAnimationFrame(drawFrame); return; }
+
+  const midY  = H / 2;
+  const scale = (H / 8) / (1023 / vdiv);
+
+  /* trigger line */
+  const trigY = midY - ((trig - 512 + offset) * scale);
+  ctx.strokeStyle = '#ffcc0033';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(0, trigY); ctx.lineTo(W, trigY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#ffcc0099';
+  ctx.font = `${10*dpr}px "Share Tech Mono"`;
+  ctx.fillText('T ' + trig, 6*dpr, trigY - 4*dpr);
+
+  /* waveform */
+  ctx.strokeStyle = '#00ff7f';
+  ctx.lineWidth = 1.5 * dpr;
+  ctx.shadowColor = '#00ff7f55';
+  ctx.shadowBlur = 4;
+  ctx.beginPath();
+  for (let i = 0; i < slice.length; i++) {
+    const x = (i / (slice.length - 1)) * W;
+    const y = midY - ((slice[i] - 512 + offset) * scale);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  requestAnimationFrame(drawFrame);
+}
+requestAnimationFrame(drawFrame);
+
+/* ── Web Serial connect ── */
+btnConn.onclick = async () => {
+  if (!('serial' in navigator)) {
+    alert('Web Serial not supported — use Chrome on Android');
+    return;
+  }
+  if (connected) {
+    try { if (reader) await reader.cancel(); } catch(e) {}
+    try { if (port) await port.close(); } catch(e) {}
+    port = null; reader = null;
+    connected = false; demoMode = true;
+    led.className = 'led';
+    connLabel.textContent = 'DEMO';
+    btnConn.textContent = 'CONNECT USB';
+    btnConn.classList.remove('red');
+    return;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    connected = true; demoMode = false; buffer = [];
+    led.className = 'led on';
+    connLabel.textContent = 'CONNECTED';
+    btnConn.textContent = 'DISCONNECT';
+    btnConn.classList.add('red');
+
+    const decoder = new TextDecoderStream();
+    port.readable.pipeTo(decoder.writable);
+    reader = decoder.readable.getReader();
+    let partial = '';
+    (async () => {
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          partial += value;
+          const lines = partial.split('\n');
+          partial = lines.pop();
+          for (const line of lines) {
+            const v = parseInt(line.trim());
+            if (!isNaN(v) && v >= 0 && v <= 1023) {
+              buffer.push(v);
+              if (buffer.length > BUFSIZE) buffer.shift();
+            }
+          }
+        }
+      } catch(e) {}
+      connected = false; demoMode = true;
+      led.className = 'led';
+      connLabel.textContent = 'DEMO';
+      btnConn.textContent = 'CONNECT USB';
+      btnConn.classList.remove('red');
+    })();
+  } catch(e) {
+    if (e.name !== 'NotFoundError') alert(e.message || 'Connection failed');
+  }
+};
+</script>
+</body>
+</html>
